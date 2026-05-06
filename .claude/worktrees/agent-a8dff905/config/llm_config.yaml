@@ -1,0 +1,43 @@
+# LLM Provider Configuration
+# Override individual api_key values via environment variables:
+#   OPENAI_API_KEY, CLAUDE_API_KEY, ERNIE_API_KEY, QWEN_API_KEY, SILICONFLOW_API_KEY
+# Override api_base via: OPENAI_API_BASE, CLAUDE_API_BASE, etc.
+
+providers:
+  - provider: openai
+    api_key: "${OPENAI_API_KEY:sk-xxx}"
+    api_base: "${OPENAI_API_BASE:https://api.openai.com/v1}"
+    model_name: "gpt-4o"
+    temperature: 0.7
+    max_tokens: 2048
+
+  - provider: claude
+    api_key: "${CLAUDE_API_KEY:sk-xxx}"
+    api_base: ""
+    model_name: "claude-sonnet-4-20250514"
+    temperature: 0.7
+    max_tokens: 2048
+
+  - provider: ernie
+    api_key: "${ERNIE_API_KEY:}"
+    api_base: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop"
+    model_name: "ernie-4.0"
+    temperature: 0.7
+    max_tokens: 2048
+
+  - provider: qwen
+    api_key: "${QWEN_API_KEY:}"
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model_name: "qwen-max"
+    temperature: 0.7
+    max_tokens: 2048
+
+  - provider: siliconflow
+    api_key: "${SILICONFLOW_API_KEY:}"
+    api_base: "https://api.siliconflow.cn/v1"
+    model_name: "Qwen/Qwen2.5-72B-Instruct"
+    temperature: 0.7
+    max_tokens: 2048
+
+# Default provider to use when none is specified
+default_provider: openai

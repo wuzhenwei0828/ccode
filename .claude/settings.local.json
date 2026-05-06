@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python:*)",
+      "Bash(.venv/bin/pip list:*)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_memory_service.py -v 2>&1)",
+      "Bash(pytest:*)",
+      "Bash(PYTHONPATH=. pytest tests/test_document_loader.py -v 2>&1)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git -C /Users/zyb/PycharmProjects/CCode status --short)",
+      "Bash(git checkout:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git reset:*)",
+      "Bash(docker info:*)",
+      "Bash(pip install:*)",
+      "Bash(python3 -c \"import fastapi; print\\(''fastapi ok''\\)\")",
+      "Bash(.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 2>&1)",
+      "Bash(.venv/bin/python -m debugpy --listen 5678 --wait-for-client -m uvicorn main:app --host 0.0.0.0 --port 8000 2>&1)",
+      "Bash(lsof -iTCP -sTCP:LISTEN)",
+      "Bash(lsof -iTCP -sTCP:LISTEN -P)",
+      "Bash(mysql -h 127.0.0.1 -P 5432 -u root -proot -e \"SELECT 1\")",
+      "Bash(docker ps:*)",
+      "Bash(curl -o frontend/marked.min.js https://cdn.jsdelivr.net/npm/marked/marked.min.js)",
+      "Skill(zyb-gpt)",
+      "Bash(git:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)"
+    ]
+  }
+}
