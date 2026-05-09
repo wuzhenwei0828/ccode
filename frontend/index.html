@@ -364,6 +364,14 @@
     color: #d8d6d0;
   }
 
+  .message-usage {
+    margin-top: 8px;
+    padding: 0 2px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+
   .message.assistant .message-content em {
     font-style: italic;
     color: var(--amber);
@@ -1119,6 +1127,11 @@ function renderMd(text) {
   return DOMPurify.sanitize(markdownToHtml(cleaned));
 }
 
+function renderUsage(usage) {
+  if (!usage) return '';
+  return `<div class="message-usage">Token：输入 ${usage.input_tokens ?? 0} / 输出 ${usage.output_tokens ?? 0} / 分析 ${usage.analysis_tokens ?? 0}</div>`;
+}
+
 // ── Init ──
 const USER_STORAGE_KEY = 'chat_user_id';
 
@@ -1304,7 +1317,7 @@ async function sendMessage() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     // Add assistant message placeholder
-    state.messages.push({ role: 'assistant', content: '', sequence: state.messages.length });
+    state.messages.push({ role: 'assistant', content: '', usage: null, sequence: state.messages.length });
     renderMessages();
 
     const reader = res.body.getReader();
@@ -1325,10 +1338,15 @@ async function sendMessage() {
           if (data === '[DONE]') continue;
           try {
             const parsed = JSON.parse(data);
-            if (parsed.chunk) {
-              const lastMsg = state.messages[state.messages.length - 1];
+            const lastMsg = state.messages[state.messages.length - 1];
+            if (parsed.chunk && lastMsg) {
               lastMsg.content += parsed.chunk;
-              updateLastMessage(lastMsg.content);
+              updateLastMessage(lastMsg.content, lastMsg.usage);
+              scrollToBottom();
+            }
+            if (parsed.usage && lastMsg) {
+              lastMsg.usage = parsed.usage;
+              updateLastMessage(lastMsg.content, lastMsg.usage);
               scrollToBottom();
             }
           } catch (e) {}
@@ -1355,17 +1373,30 @@ function renderMessages() {
     <div class="message ${m.role}">
       <div class="message-role"><span class="dot"></span>${m.role === 'user' ? 'You' : 'Assistant'}</div>
       <div class="message-content ${m.role === 'assistant' ? 'markdown-body' : ''}">${m.role === 'assistant' ? renderMd(m.content) : escHtml(m.content)}</div>
+      ${m.role === 'assistant' ? renderUsage(m.usage) : ''}
     </div>
   `).join('');
   scrollToBottom();
 }
 
-function updateLastMessage(content) {
+function updateLastMessage(content, usage) {
   const messages = document.getElementById('messages');
   const lastMsgEl = messages.querySelector('.message.assistant:last-of-type');
   if (lastMsgEl) {
     const contentEl = lastMsgEl.querySelector('.message-content');
     if (contentEl) contentEl.innerHTML = renderMd(content);
+
+    let usageEl = lastMsgEl.querySelector('.message-usage');
+    const usageHtml = renderUsage(usage);
+    if (usageHtml) {
+      if (!usageEl) {
+        lastMsgEl.insertAdjacentHTML('beforeend', usageHtml);
+      } else {
+        usageEl.outerHTML = usageHtml;
+      }
+    } else if (usageEl) {
+      usageEl.remove();
+    }
   }
 }
 

@@ -184,6 +184,78 @@ class TestMemoryService(unittest.TestCase):
 
     @patch("services.memory_service.SessionLocal")
     @patch("services.memory_service.get_settings")
+    def test_add_message_does_not_set_explicit_uuid_id(self, mock_get_settings, mock_session_local):
+        mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
+        mock_db = MagicMock()
+        mock_session_local.return_value = mock_db
+
+        msg_query = MagicMock()
+        msg_filter = MagicMock()
+        msg_order = MagicMock()
+        msg_filter.order_by.return_value = msg_order
+        msg_order.first.return_value = None
+        msg_query.filter.return_value = msg_filter
+
+        session_query = MagicMock()
+        session_filter = MagicMock()
+        session_obj = MagicMock()
+        session_filter.first.return_value = session_obj
+        session_query.filter.return_value = session_filter
+
+        def query_side_effect(model):
+            if model is ChatSession:
+                return session_query
+            return msg_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        self.service.add_message(1, "user", "hello", db=mock_db)
+
+        saved_message = mock_db.add.call_args.args[0]
+        self.assertEqual(saved_message.session_id, 1)
+        self.assertEqual(saved_message.role, "user")
+        self.assertEqual(saved_message.content, "hello")
+        self.assertIsNone(getattr(saved_message, "id", None))
+
+    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory_service.get_settings")
+    def test_memory_normalizes_integer_and_string_session_ids_to_same_cache_key(self, mock_get_settings, mock_session_local):
+        mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
+        mock_db = MagicMock()
+        mock_session_local.return_value = mock_db
+
+        msg_query = MagicMock()
+        msg_filter = MagicMock()
+        msg_order = MagicMock()
+        msg_filter.order_by.return_value = msg_order
+        msg_query.filter.return_value = msg_filter
+
+        session_query = MagicMock()
+        session_filter = MagicMock()
+        session_obj = MagicMock()
+        session_filter.first.return_value = session_obj
+        session_query.filter.return_value = session_filter
+
+        def query_side_effect(model):
+            if model is ChatSession:
+                return session_query
+            return msg_query
+
+        mock_db.query.side_effect = query_side_effect
+        msg_order.first.side_effect = [None, (0,)]
+
+        self.service.add_message(1, "user", "hello", db=mock_db)
+        self.service.add_message("1", "assistant", "hi", db=mock_db)
+
+        self.assertIn("1", self.service._buffers_s1)
+        self.assertNotIn(1, self.service._buffers_s1)
+        messages = self.service._buffers_s1["1"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0].content, "hello")
+        self.assertEqual(messages[1].content, "hi")
+
+    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory_service.get_settings")
     def test_add_message_sequence_increment(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -747,10 +819,10 @@ class TestDualBufferCompression(unittest.TestCase):
         prompt = mock_llm.invoke.call_args[0][0]
 
     @patch("services.memory_service.get_settings")
-    def test_memory_uses_integer_session_id_keys(self, mock_get_settings):
+    def test_memory_normalizes_integer_session_id_to_string_cache_key(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         session_id = 123
-        self.service._buffers_s1[session_id] = [HumanMessage(content="msg")]
+        self.service._buffers_s1["123"] = [HumanMessage(content="msg")]
 
         summary, history = self.service.get_context_parts(session_id)
 

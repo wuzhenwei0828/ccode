@@ -1,7 +1,6 @@
 import logging
 import threading
 from typing import Optional
-from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from sqlalchemy.orm import Session
@@ -33,11 +32,16 @@ class MemoryService:
         self._summary_in_progress: set[str] = set()
         self._compressing: set[str] = set()
 
-    def _get_lock(self, session_id: str) -> threading.Lock:
+    @staticmethod
+    def _session_key(session_id: str | int) -> str:
+        return str(session_id)
+
+    def _get_lock(self, session_id: str | int) -> threading.Lock:
+        session_key = self._session_key(session_id)
         with self._locks_lock:
-            if session_id not in self._locks:
-                self._locks[session_id] = threading.Lock()
-            return self._locks[session_id]
+            if session_key not in self._locks:
+                self._locks[session_key] = threading.Lock()
+            return self._locks[session_key]
 
     @property
     def config(self) -> MemoryConfig:
@@ -45,19 +49,21 @@ class MemoryService:
             self._config = get_settings().get_memory_config()
         return self._config
 
-    def get_context_parts(self, session_id: str) -> tuple[str, list[BaseMessage]]:
+    def get_context_parts(self, session_id: str | int) -> tuple[str, list[BaseMessage]]:
         """Return summary text and history messages separately for prompt composition."""
-        lock = self._get_lock(session_id)
+        session_key = self._session_key(session_id)
+        lock = self._get_lock(session_key)
         with lock:
-            s1 = self._buffers_s1.get(session_id, [])
-            s2 = self._buffers_s2.get(session_id, [])
-            summary = self._summary_cache.get(session_id, "")
+            s1 = self._buffers_s1.get(session_key, [])
+            s2 = self._buffers_s2.get(session_key, [])
+            summary = self._summary_cache.get(session_key, "")
             if s1 or s2:
                 return summary, [*s1, *s2]
         return self._recover_context_parts(session_id)
 
-    def _recover_context_parts(self, session_id: str) -> tuple[str, list[BaseMessage]]:
+    def _recover_context_parts(self, session_id: str | int) -> tuple[str, list[BaseMessage]]:
         """Recover summary and history separately from MySQL when in-memory cache is empty."""
+        session_key = self._session_key(session_id)
         db = SessionLocal()
         try:
             session = ChatSession.get_by_id(db, session_id)
@@ -78,12 +84,12 @@ class MemoryService:
             half = max(1, self.config.short_term_window // 2)
             cached = converted if len(converted) <= half else converted[-half:]
 
-            lock = self._get_lock(session_id)
+            lock = self._get_lock(session_key)
             with lock:
-                self._buffers_s1[session_id] = cached
-                self._buffers_s2[session_id] = []
+                self._buffers_s1[session_key] = cached
+                self._buffers_s2[session_key] = []
                 if summary:
-                    self._summary_cache[session_id] = summary
+                    self._summary_cache[session_key] = summary
 
             if len(converted) > half:
                 self._start_compression(session_id)
@@ -92,7 +98,7 @@ class MemoryService:
         finally:
             db.close()
 
-    def get_context(self, session_id: str) -> list[BaseMessage]:
+    def get_context(self, session_id: str | int) -> list[BaseMessage]:
         """Compatibility wrapper for legacy callers.
 
         New code should prefer get_context_parts(), which returns summary text and
@@ -103,17 +109,18 @@ class MemoryService:
             return [SystemMessage(content=f"以下是之前对话的摘要：{summary}")] + history
         return history
 
-    def add_message(self, session_id: str, role: str, content: str, db: Optional[Session] = None):
+    def add_message(self, session_id: str | int, role: str, content: str, db: Optional[Session] = None):
         """Add a message to both short-term cache and long-term storage."""
+        session_key = self._session_key(session_id)
         msg_obj = HumanMessage(content=content) if role == "user" else AIMessage(content=content)
         half = max(1, self.config.short_term_window // 2)
         should_start_compression = False
 
-        lock = self._get_lock(session_id)
+        lock = self._get_lock(session_key)
         with lock:
-            s1 = self._buffers_s1.setdefault(session_id, [])
-            if session_id in self._compressing or len(s1) >= half:
-                self._buffers_s2.setdefault(session_id, []).append(msg_obj)
+            s1 = self._buffers_s1.setdefault(session_key, [])
+            if session_key in self._compressing or len(s1) >= half:
+                self._buffers_s2.setdefault(session_key, []).append(msg_obj)
             else:
                 s1.append(msg_obj)
                 if len(s1) >= half:
@@ -127,7 +134,6 @@ class MemoryService:
             next_seq = (max_seq[0] + 1) if max_seq else 0
 
             chat_msg = ChatMessage(
-                id=str(uuid4()),
                 session_id=session_id,
                 role=role,
                 content=content,
@@ -144,11 +150,11 @@ class MemoryService:
             db.commit()
         except Exception:
             with lock:
-                s2 = self._buffers_s2.get(session_id, [])
+                s2 = self._buffers_s2.get(session_key, [])
                 if s2 and s2[-1] is msg_obj:
                     s2.pop()
                 else:
-                    s1 = self._buffers_s1.get(session_id, [])
+                    s1 = self._buffers_s1.get(session_key, [])
                     if s1 and s1[-1] is msg_obj:
                         s1.pop()
             db.rollback()
@@ -158,15 +164,16 @@ class MemoryService:
                 db.close()
 
         if should_start_compression:
-            self._start_compression(session_id)
+            self._start_compression(session_key)
 
-    def _start_compression(self, session_id: str):
+    def _start_compression(self, session_id: str | int):
         """Mark a session as compressing and schedule background compression once."""
+        session_key = self._session_key(session_id)
         with self._locks_lock:
-            if session_id in self._summary_in_progress:
+            if session_key in self._summary_in_progress:
                 return
-            self._summary_in_progress.add(session_id)
-            self._compressing.add(session_id)
+            self._summary_in_progress.add(session_key)
+            self._compressing.add(session_key)
 
         def _run_compression():
             bg_db = SessionLocal()
@@ -175,7 +182,7 @@ class MemoryService:
                 if not bg_session:
                     return
                 self._generate_summary(bg_db, session_id, bg_session)
-                self._on_compression_complete(session_id)
+                self._on_compression_complete(session_key)
                 bg_db.commit()
             except Exception as e:
                 logger.error("compression failed for %s: %s", session_id, e)
@@ -186,16 +193,18 @@ class MemoryService:
 
         threading.Thread(target=_run_compression, daemon=True).start()
 
-    def _on_compression_complete(self, session_id: str):
+    def _on_compression_complete(self, session_id: str | int):
         """Move S2 into S1 after compression completes and clear S2."""
-        lock = self._get_lock(session_id)
+        session_key = self._session_key(session_id)
+        lock = self._get_lock(session_key)
         with lock:
-            self._buffers_s1[session_id] = list(self._buffers_s2.get(session_id, []))
-            self._buffers_s2[session_id] = []
-            self._compressing.discard(session_id)
+            self._buffers_s1[session_key] = list(self._buffers_s2.get(session_key, []))
+            self._buffers_s2[session_key] = []
+            self._compressing.discard(session_key)
 
-    def _generate_summary(self, db: Session, session_id: str, session: ChatSession):
+    def _generate_summary(self, db: Session, session_id: str | int, session: ChatSession):
         """Generate conversation summary using LLM and persist it."""
+        session_key = self._session_key(session_id)
         try:
             llm = LLMFactory.create()
             old_summary = session.summary
@@ -228,9 +237,9 @@ class MemoryService:
             session.summary = summary
             session.summary_sequence = latest_seq
 
-            lock = self._get_lock(session_id)
+            lock = self._get_lock(session_key)
             with lock:
-                self._summary_cache[session_id] = summary
+                self._summary_cache[session_key] = summary
 
             logger.info(
                 "summary generated session=%s sequence=%d summary=%s",
@@ -241,7 +250,7 @@ class MemoryService:
         except Exception as e:
             logger.error("failed to generate summary for %s: %s", session_id, e)
 
-    def load_history(self, session_id: str, limit: Optional[int] = None) -> list[BaseMessage]:
+    def load_history(self, session_id: str | int, limit: Optional[int] = None) -> list[BaseMessage]:
         """Load full history from MySQL for a session."""
         db = SessionLocal()
         try:
@@ -256,13 +265,14 @@ class MemoryService:
         finally:
             db.close()
 
-    def clear_session(self, session_id: str):
+    def clear_session(self, session_id: str | int):
         """Clear all memory for a session."""
-        lock = self._get_lock(session_id)
+        session_key = self._session_key(session_id)
+        lock = self._get_lock(session_key)
         with lock:
-            self._buffers_s1.pop(session_id, None)
-            self._buffers_s2.pop(session_id, None)
-            self._summary_cache.pop(session_id, None)
+            self._buffers_s1.pop(session_key, None)
+            self._buffers_s2.pop(session_key, None)
+            self._summary_cache.pop(session_key, None)
         db = SessionLocal()
         try:
             ChatMessage.delete_by_session(db, session_id)

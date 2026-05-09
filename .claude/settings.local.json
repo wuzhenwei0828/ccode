@@ -28,7 +28,12 @@
       "Skill(zyb-gpt)",
       "Bash(git:*)",
       "Bash(npm install:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "Bash(lsof:*)",
+      "Bash(ps:*)"
     ]
   }
 }

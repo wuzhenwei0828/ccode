@@ -15,16 +15,23 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 class ChatRequest(BaseModel):
-    session_id: str
+    session_id: int
     message: str
     use_rag: bool = False
     provider: Optional[str] = None
     rag_k: int = 4
 
 
+class TokenUsageResponse(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    analysis_tokens: int
+
+
 class ChatResponse(BaseModel):
-    session_id: str
+    session_id: int
     response: str
+    usage: TokenUsageResponse
 
 
 @router.post("", response_model=ChatResponse)
@@ -32,12 +39,16 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Send a message and receive a complete response."""
     if req.use_rag:
         chain = RAGChain(memory_service, rag_service, provider=req.provider)
-        response = chain.invoke(req.session_id, req.message, k=req.rag_k)
+        result = chain.invoke(req.session_id, req.message, k=req.rag_k)
     else:
         chain = ChatChain(memory_service, provider=req.provider)
-        response = chain.invoke(req.session_id, req.message)
+        result = chain.invoke(req.session_id, req.message)
 
-    return ChatResponse(session_id=req.session_id, response=response)
+    return ChatResponse(
+        session_id=req.session_id,
+        response=result["response"],
+        usage=result["usage"],
+    )
 
 
 @router.post("/stream")
@@ -49,12 +60,12 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
     async def event_generator():
         if req.use_rag:
             chain = RAGChain(memory_service, rag_service, provider=req.provider)
-            async for chunk in chain.astream(req.session_id, req.message, k=req.rag_k):
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            async for event in chain.astream(req.session_id, req.message, k=req.rag_k):
+                yield f"data: {json.dumps(event)}\n\n"
         else:
             chain = ChatChain(memory_service, provider=req.provider)
-            async for chunk in chain.astream(req.session_id, req.message):
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            async for event in chain.astream(req.session_id, req.message):
+                yield f"data: {json.dumps(event)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

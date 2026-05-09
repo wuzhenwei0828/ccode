@@ -20,13 +20,13 @@ class KBCreateRequest(BaseModel):
 
 
 class KBResponse(BaseModel):
-    id: str
+    id: int
     name: str
     description: str
 
 
 class DocumentResponse(BaseModel):
-    id: str
+    id: int
     file_name: str
     status: str
 
@@ -35,7 +35,6 @@ class DocumentResponse(BaseModel):
 def create_kb(req: KBCreateRequest, db: Session = Depends(get_db)):
     """Create a new knowledge base."""
     kb = KnowledgeBase(
-        id=str(uuid4()),
         name=req.name,
         description=req.description,
     )
@@ -55,7 +54,7 @@ def list_kbs(db: Session = Depends(get_db)):
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    kb_id: str = Form(...),
+    kb_id: int = Form(...),
     db: Session = Depends(get_db),
 ):
     """Upload a document to a knowledge base and index it."""
@@ -89,10 +88,9 @@ async def upload_document(
 
         # Save to DB
         doc_meta = DocumentMeta(
-            id=doc_id,
             kb_id=kb_id,
             file_name=file.filename,
-            file_path=tmp_path,
+            file_path="",
             status="indexed",
         )
         db.add(doc_meta)
