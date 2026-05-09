@@ -3,9 +3,10 @@ import logging
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from services.llm_factory import LLMFactory
+from services.agent_service import AgentService
+from services.agent_tools import build_chat_tools
 from services.memory_service import MemoryService
-from services.token_usage import normalize_token_usage
+from services.token_usage import TokenUsage, normalize_token_usage
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,21 @@ class ChatChain:
             return "".join(parts)
         return str(content or "")
 
+    @staticmethod
+    def _usage_payload(usage: TokenUsage | dict | None) -> dict:
+        if isinstance(usage, dict):
+            return {
+                "input_tokens": int(usage.get("input_tokens", 0)),
+                "output_tokens": int(usage.get("output_tokens", 0)),
+                "analysis_tokens": int(usage.get("analysis_tokens", 0)),
+            }
+        normalized = normalize_token_usage(usage)
+        return {
+            "input_tokens": normalized.input_tokens,
+            "output_tokens": normalized.output_tokens,
+            "analysis_tokens": normalized.analysis_tokens,
+        }
+
     def _build_messages(self, summary: str, history: list[BaseMessage], message: str):
         return self._prompt.format_messages(
             summary=summary or "无",
@@ -51,24 +67,25 @@ class ChatChain:
 
     def invoke(self, session_id: str, message: str) -> dict:
         """Run a conversation turn."""
-        llm = LLMFactory.create(self.provider)
+        agent_service = AgentService(provider=self.provider)
         summary, history = self.memory.get_context_parts(session_id)
         messages = self._build_messages(summary, history, message)
+        tools = build_chat_tools()
 
         logger.info("invoke session=%s provider=%s messages=%s", session_id, self.provider, history)
 
-        raw_response = llm.invoke(messages)
-        response = self._extract_text(raw_response)
-        usage = normalize_token_usage(raw_response)
+        result = agent_service.invoke(messages=messages, tools=tools)
+        response = result["response"]
+        usage = self._usage_payload(result.get("usage") or result.get("raw_response"))
 
         logger.info("response session=%s len=%d preview=%s", session_id, len(response), response[:120])
         logger.info(
             "usage session=%s provider=%s input_tokens=%d output_tokens=%d analysis_tokens=%d",
             session_id,
             self.provider,
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.analysis_tokens,
+            usage["input_tokens"],
+            usage["output_tokens"],
+            usage["analysis_tokens"],
         )
 
         self.memory.add_message(session_id, "user", message)
@@ -76,51 +93,42 @@ class ChatChain:
 
         return {
             "response": response,
-            "usage": {
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "analysis_tokens": usage.analysis_tokens,
-            },
+            "usage": usage,
         }
 
     async def astream(self, session_id: str, message: str):
         """Stream a conversation response."""
-        llm = LLMFactory.create(self.provider)
+        agent_service = AgentService(provider=self.provider)
         summary, history = self.memory.get_context_parts(session_id)
         messages = self._build_messages(summary, history, message)
+        tools = build_chat_tools()
 
         logger.info("astream session=%s provider=%s messages=%d", session_id, self.provider, len(history))
 
         self.memory.add_message(session_id, "user", message)
 
         full_response = []
-        last_chunk = None
+        usage_payload = self._usage_payload(None)
         logger.info("astream messages=%s history=%s", message, history)
-        async for chunk in llm.astream(messages):
-            text = self._extract_text(chunk)
-            if chunk.usage_metadata:
-                last_chunk = chunk
+        async for event in agent_service.astream(messages=messages, tools=tools):
+            if "usage" in event:
+                usage_payload = self._usage_payload(event.get("usage"))
+                continue
+            text = event.get("text") or event.get("chunk", "")
             if text:
                 full_response.append(text)
                 yield {"chunk": text}
 
         full = "".join(full_response)
-        usage = normalize_token_usage(last_chunk)
         logger.info("astream done session=%s total_len=%d preview=%s", session_id, len(full), full[:120])
         logger.info(
             "astream usage session=%s provider=%s input_tokens=%d output_tokens=%d analysis_tokens=%d",
             session_id,
             self.provider,
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.analysis_tokens,
+            usage_payload["input_tokens"],
+            usage_payload["output_tokens"],
+            usage_payload["analysis_tokens"],
         )
 
         self.memory.add_message(session_id, "assistant", full)
-        yield {
-            "usage": {
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "analysis_tokens": usage.analysis_tokens,
-            },
-        }
+        yield {"usage": usage_payload}
