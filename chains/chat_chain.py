@@ -18,7 +18,7 @@ class ChatChain:
         self.memory = memory_service
         self.provider = provider
         self._prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="You are a helpful assistant."),
+            SystemMessage(content="You are a helpful assistant.回答要简洁明了，不要废话。"),
             ("human", "以下是历史对话摘要，仅供参考：\n{summary}"),
             MessagesPlaceholder(variable_name="history"),
             ("human", "{input}"),

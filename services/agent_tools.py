@@ -65,7 +65,7 @@ def _build_current_time_tool() -> ChatTool:
 
     return ChatTool(
         name="current_time",
-        description="Get the current server time.",
+        description="Get the current time.",
         input_schema={
             "type": "object",
             "properties": {},

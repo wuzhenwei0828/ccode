@@ -1,10 +1,13 @@
 import json
+import logging
 from types import SimpleNamespace
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from services.llm_factory import LLMFactory
 from services.token_usage import TokenUsage, merge_token_usage, normalize_token_usage
+
+logger = logging.getLogger(__name__)
 
 
 class AgentService:
@@ -100,15 +103,19 @@ class AgentService:
     def _execute_tool_call(self, tool_map: dict[str, object], tool_call: dict) -> tuple[str, str]:
         name = tool_call.get("name") or "unknown_tool"
         call_id = tool_call.get("id") or name
+        args = self._normalize_tool_args(tool_call.get("args")) if tool_call.get("args") is not None else {}
         tool = tool_map.get(name)
         if tool is None:
+            logger.info("agent tool error name=%s args=%s error=%s", name, args, f"Unknown tool: {name}")
             return call_id, json.dumps({"ok": False, "error": f"Unknown tool: {name}"}, ensure_ascii=False)
 
         try:
-            args = self._normalize_tool_args(tool_call.get("args"))
+            logger.info("agent tool call name=%s args=%s", name, args)
             result = tool.handler(**args)
+            logger.info("agent tool result name=%s result=%s", name, result)
             return call_id, json.dumps(result, ensure_ascii=False)
         except Exception as exc:
+            logger.info("agent tool error name=%s args=%s error=%s", name, args, exc)
             return call_id, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     def _run_loop(self, llm, messages: list, tools: list | None = None, max_iterations: int = 4) -> tuple[list, object, TokenUsage, bool]:
@@ -116,17 +123,32 @@ class AgentService:
         tool_map = self._build_tool_map(tools)
         total_usage = TokenUsage()
         raw_response = None
+        tool_names = [tool.name for tool in tools or []]
 
-        for _ in range(max_iterations):
+        for iteration in range(max_iterations):
+            logger.info(
+                "agent invoke request provider=%s iteration=%d messages=%s tools=%s",
+                self.provider,
+                iteration,
+                working_messages,
+                tool_names,
+            )
             raw_response = llm.invoke(working_messages)
             total_usage = merge_token_usage(total_usage, normalize_token_usage(raw_response))
             tool_calls = self._extract_tool_calls(raw_response)
+            logger.info(
+                "agent invoke response provider=%s iteration=%d raw_response=%s tool_calls=%s",
+                self.provider,
+                iteration,
+                raw_response,
+                tool_calls,
+            )
             if not tool_calls:
                 return working_messages, raw_response, total_usage, False
 
             assistant_text = self._extract_text(raw_response)
             if assistant_text:
-                working_messages.append(HumanMessage(content=assistant_text))
+                working_messages.append(AIMessage(content=assistant_text))
 
             for tool_call in tool_calls:
                 call_id, tool_result = self._execute_tool_call(tool_map, tool_call)
