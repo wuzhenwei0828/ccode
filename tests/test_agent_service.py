@@ -1,9 +1,11 @@
 import asyncio
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from services.agent_service import AgentService
 from services.agent_tools import build_chat_tools
@@ -192,6 +194,47 @@ class TestAgentService(unittest.TestCase):
         self.assertEqual(llm.invoke.call_count, 2)
 
     @patch("services.agent_service.LLMFactory.create")
+    def test_invoke_replays_assistant_tool_call_and_tool_observation(self, mock_create):
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        first_response = AIMessage(
+            content="Thinking",
+            tool_calls=[{"name": "knowledge_search", "args": {"question": "What is ReAct?", "k": 2}, "id": "call-1"}],
+        )
+        first_response.usage_metadata = {}
+        llm.invoke.side_effect = [
+            first_response,
+            SimpleNamespace(content="Final answer", usage_metadata={}),
+        ]
+        mock_create.return_value = llm
+
+        tool_result = {"ok": True, "results": [{"content": "ReAct is a tool loop."}]}
+        tool = StubTool("knowledge_search", MagicMock(return_value=tool_result))
+
+        service = AgentService(provider="siliconflow")
+        result = service.invoke(messages=["m1"], tools=[tool])
+
+        self.assertEqual(result["response"], "Final answer")
+        tool.handler.assert_called_once_with(question="What is ReAct?", k=2)
+        second_call_messages = llm.invoke.call_args_list[1].args[0]
+        self.assertEqual(second_call_messages[0], "m1")
+        self.assertIs(second_call_messages[1], first_response)
+        self.assertIsInstance(second_call_messages[2], ToolMessage)
+        self.assertEqual(second_call_messages[2].tool_call_id, "call-1")
+        self.assertEqual(second_call_messages[2].content, json.dumps(tool_result, ensure_ascii=False))
+
+    @patch("services.agent_service.LLMFactory.create")
+    def test_invoke_returns_fallback_when_final_response_is_empty(self, mock_create):
+        llm = MagicMock()
+        llm.invoke.return_value = SimpleNamespace(content="   ", usage_metadata={})
+        mock_create.return_value = llm
+
+        service = AgentService(provider="siliconflow")
+        result = service.invoke(messages=["m1"], tools=[])
+
+        self.assertEqual(result["response"], service.FALLBACK_RESPONSE)
+
+    @patch("services.agent_service.LLMFactory.create")
     def test_invoke_executes_zero_arg_current_time_tool_calls(self, mock_create):
         llm = MagicMock()
         llm.bind_tools.return_value = llm
@@ -296,6 +339,45 @@ class TestAgentService(unittest.TestCase):
         self.assertEqual(result["response"], "Final answer")
         tool.handler.assert_called_once_with(question="What is ReAct?", k=2)
         self.assertEqual(llm.invoke.call_count, 2)
+
+    @patch("services.agent_service.LLMFactory.create")
+    def test_invoke_replays_text_tool_call_fallback_as_ai_message(self, mock_create):
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            SimpleNamespace(
+                content='TOOL_CALL {"name": "knowledge_search", "args": {"question": "What is ReAct?", "k": 2}}',
+                usage_metadata={},
+            ),
+            SimpleNamespace(content="Final answer", usage_metadata={}),
+        ]
+        mock_create.return_value = llm
+
+        tool_result = {"ok": True, "results": [{"content": "ReAct is a tool loop."}]}
+        tool = StubTool("knowledge_search", MagicMock(return_value=tool_result))
+
+        service = AgentService(provider="siliconflow")
+        result = service.invoke(messages=["m1"], tools=[tool])
+
+        self.assertEqual(result["response"], "Final answer")
+        tool.handler.assert_called_once_with(question="What is ReAct?", k=2)
+        second_call_messages = llm.invoke.call_args_list[1].args[0]
+        self.assertEqual(second_call_messages[0], "m1")
+        self.assertIsInstance(second_call_messages[1], AIMessage)
+        self.assertEqual(
+            second_call_messages[1].content,
+            'TOOL_CALL {"name": "knowledge_search", "args": {"question": "What is ReAct?", "k": 2}}',
+        )
+        self.assertEqual(len(second_call_messages[1].tool_calls), 1)
+        self.assertEqual(second_call_messages[1].tool_calls[0]["name"], "knowledge_search")
+        self.assertEqual(
+            second_call_messages[1].tool_calls[0]["args"],
+            {"question": "What is ReAct?", "k": 2},
+        )
+        self.assertEqual(second_call_messages[1].tool_calls[0]["id"], "knowledge_search")
+        self.assertIsInstance(second_call_messages[2], ToolMessage)
+        self.assertEqual(second_call_messages[2].tool_call_id, "knowledge_search")
+        self.assertEqual(second_call_messages[2].content, json.dumps(tool_result, ensure_ascii=False))
 
     @patch("services.agent_service.LLMFactory.create")
     def test_invoke_returns_text_and_raw_response_without_tools(self, mock_create):
@@ -415,6 +497,108 @@ class TestAgentService(unittest.TestCase):
         self.assertEqual(events[-1], {
             "usage": {"input_tokens": 14, "output_tokens": 9, "analysis_tokens": 3}
         })
+
+    @patch("services.agent_service.LLMFactory.create")
+    def test_astream_uses_post_loop_messages_for_final_stream(self, mock_create):
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"id": "call-1", "name": "knowledge_search", "args": {"question": "What is ReAct?"}}],
+                usage_metadata={"input_tokens": 8, "output_tokens": 2, "reasoning_tokens": 1},
+            ),
+            SimpleNamespace(
+                content="Final answer",
+                usage_metadata={"input_tokens": 3, "output_tokens": 4, "reasoning_tokens": 1},
+            ),
+        ]
+        mock_create.return_value = llm
+
+        tool = StubTool("knowledge_search", MagicMock(return_value={"ok": True, "results": [{"content": "ctx"}]}))
+
+        async def fake_astream(messages):
+            self.assertEqual(messages[0].content, "What is ReAct?")
+            self.assertIsInstance(messages[1], AIMessage)
+            self.assertEqual(messages[1].tool_calls[0]["id"], "call-1")
+            self.assertIsInstance(messages[-1], ToolMessage)
+            self.assertEqual(messages[-1].tool_call_id, "call-1")
+            yield SimpleNamespace(content="Final ")
+            yield SimpleNamespace(content="answer")
+
+        llm.astream = fake_astream
+
+        service = AgentService(provider="siliconflow")
+
+        async def collect_events():
+            return [event async for event in service.astream(messages=[HumanMessage(content="What is ReAct?")], tools=[tool])]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [
+            {"chunk": "Final ", "text": "Final "},
+            {"chunk": "answer", "text": "answer"},
+            {"usage": {"input_tokens": 11, "output_tokens": 6, "analysis_tokens": 2}},
+        ])
+
+    @patch("services.agent_service.LLMFactory.create")
+    def test_astream_emits_fallback_when_tool_loop_is_exhausted(self, mock_create):
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"name": "knowledge_search", "args": {"question": "loop"}}],
+                usage_metadata={},
+            ),
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"name": "knowledge_search", "args": {"question": "loop"}}],
+                usage_metadata={},
+            ),
+        ]
+        mock_create.return_value = llm
+
+        tool = StubTool("knowledge_search", MagicMock(return_value={"ok": True, "results": []}))
+        service = AgentService(provider="siliconflow")
+
+        async def collect_events():
+            return [event async for event in service.astream(messages=["m1"], tools=[tool], max_iterations=2)]
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [
+            {"chunk": service.FALLBACK_RESPONSE, "text": service.FALLBACK_RESPONSE},
+            {"usage": {"input_tokens": 0, "output_tokens": 0, "analysis_tokens": 0}},
+        ])
+
+    @patch("services.agent_service.LLMFactory.create")
+    def test_astream_emits_normalized_final_text_when_stream_has_no_chunks(self, mock_create):
+        llm = MagicMock()
+        llm.invoke.return_value = SimpleNamespace(content="   ", usage_metadata={"input_tokens": 7, "output_tokens": 1})
+        mock_create.return_value = llm
+
+        async def fake_astream(messages):
+            self.assertEqual(messages, ["m1"])
+            if False:
+                yield None
+
+        llm.astream = fake_astream
+
+        service = AgentService(provider="siliconflow")
+
+        async def collect_events():
+            events = []
+            async for event in service.astream(messages=["m1"], tools=[]):
+                events.append(event)
+            return events
+
+        events = asyncio.run(collect_events())
+
+        self.assertEqual(events, [
+            {"chunk": service.FALLBACK_RESPONSE, "text": service.FALLBACK_RESPONSE},
+            {"usage": {"input_tokens": 7, "output_tokens": 1, "analysis_tokens": 0}},
+        ])
 
     @patch("services.agent_service.LLMFactory.create")
     def test_astream_keeps_last_chunk_when_final_chunk_has_only_usage(self, mock_create):

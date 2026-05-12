@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from chains.chat_chain import ChatChain
 from services.agent_tools import build_chat_tools
@@ -19,7 +19,7 @@ class TestChatChainSummaryPrompt(unittest.TestCase):
         self.assertIn("current_time", tool_names)
 
     @patch("chains.chat_chain.AgentService")
-    def test_invoke_uses_summary_and_history_in_prompt_messages(self, mock_agent_service_cls):
+    def test_invoke_uses_react_system_prompt_and_preserves_message_order(self, mock_agent_service_cls):
         history = [HumanMessage(content="msg1")]
         memory = MagicMock()
         memory.get_context_parts.return_value = ("summary text", history)
@@ -27,7 +27,11 @@ class TestChatChainSummaryPrompt(unittest.TestCase):
         agent_service = MagicMock()
         agent_service.invoke.return_value = {
             "response": "answer",
-            "raw_response": SimpleNamespace(usage_metadata={}),
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "analysis_tokens": 0,
+            },
         }
         mock_agent_service_cls.return_value = agent_service
 
@@ -36,6 +40,11 @@ class TestChatChainSummaryPrompt(unittest.TestCase):
 
         memory.get_context_parts.assert_called_once_with("sess-1")
         prompt_messages = agent_service.invoke.call_args.kwargs["messages"]
+        self.assertIsInstance(prompt_messages[0], SystemMessage)
+        self.assertIn("你是一个会使用工具完成任务的 agent", prompt_messages[0].content)
+        self.assertIn("如果需要工具，必须优先调用工具", prompt_messages[0].content)
+        self.assertIn("调用工具后，必须基于工具结果继续完成任务", prompt_messages[0].content)
+        self.assertIn("不要向用户暴露内部推理过程", prompt_messages[0].content)
         self.assertEqual(prompt_messages[1].content, "以下是历史对话摘要，仅供参考：\nsummary text")
         self.assertEqual(prompt_messages[2].content, "msg1")
         self.assertEqual(prompt_messages[3].content, "hi")

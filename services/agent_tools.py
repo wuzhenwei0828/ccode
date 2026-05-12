@@ -1,9 +1,10 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
 from services.rag_service import RAGService
-
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatTool:
@@ -22,6 +23,7 @@ def _build_knowledge_search_tool() -> ChatTool:
     rag_service = RAGService()
 
     def handler(question: str, k: int = 4) -> dict[str, Any]:
+        logger.info("调用工具 knowledge_search")
         documents = rag_service.query(question, k=k)
         results = []
         for document in documents:
@@ -58,6 +60,7 @@ def _build_knowledge_search_tool() -> ChatTool:
 
 def _build_current_time_tool() -> ChatTool:
     def handler() -> dict[str, Any]:
+        logger.info("调用工具 current_time")
         return {
             "ok": True,
             "current_time": datetime.now().isoformat(),
@@ -65,7 +68,7 @@ def _build_current_time_tool() -> ChatTool:
 
     return ChatTool(
         name="current_time",
-        description="Get the current time.",
+        description="获取当前时间，包含年月日时分秒",
         input_schema={
             "type": "object",
             "properties": {},

@@ -10,6 +10,16 @@ from services.token_usage import TokenUsage, normalize_token_usage
 
 logger = logging.getLogger(__name__)
 
+REACT_SYSTEM_PROMPT = (
+    "你是一个会使用工具完成任务的 agent。如果需要工具，必须优先调用工具，不要猜测工具返回结果。牵涉到时间敏感的问题必须先通过工具获取当前实时时间"
+    ""
+    "回答时请严格按照ReAct模式：思考（分析当前情况，决定下一步）->行动（调用工具）->总结，以此循环，直到获取的信息足以回答问题"
+    ""
+    "未通过工具获取足够多的信息前，不要给出最终结论"
+    ""
+    "最终回答要简洁明了，不要废话，不要暴漏思考细节。"
+)
+
 
 class ChatChain:
     """Plain conversation chain with memory context."""
@@ -18,7 +28,7 @@ class ChatChain:
         self.memory = memory_service
         self.provider = provider
         self._prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content="You are a helpful assistant.回答要简洁明了，不要废话。"),
+            SystemMessage(content=REACT_SYSTEM_PROMPT),
             ("human", "以下是历史对话摘要，仅供参考：\n{summary}"),
             MessagesPlaceholder(variable_name="history"),
             ("human", "{input}"),

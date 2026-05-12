@@ -1,8 +1,7 @@
 import json
 import logging
-from types import SimpleNamespace
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from services.llm_factory import LLMFactory
 from services.token_usage import TokenUsage, merge_token_usage, normalize_token_usage
@@ -83,6 +82,17 @@ class AgentService:
         return []
 
     @staticmethod
+    def _build_assistant_replay_message(response, tool_calls: list[dict]):
+        if isinstance(response, AIMessage):
+            return response
+        normalized_tool_calls = []
+        for tool_call in tool_calls:
+            normalized_tool_call = dict(tool_call)
+            normalized_tool_call.setdefault("id", normalized_tool_call.get("name") or "tool_call")
+            normalized_tool_calls.append(normalized_tool_call)
+        return AIMessage(content=AgentService._extract_text(response), tool_calls=normalized_tool_calls)
+
+    @staticmethod
     def _normalize_tool_args(args) -> dict:
         if args is None:
             return {}
@@ -118,7 +128,12 @@ class AgentService:
             logger.info("agent tool error name=%s args=%s error=%s", name, args, exc)
             return call_id, json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
-    def _run_loop(self, llm, messages: list, tools: list | None = None, max_iterations: int = 4) -> tuple[list, object, TokenUsage, bool]:
+    @classmethod
+    def _normalize_final_response_text(cls, response) -> str:
+        text = cls._extract_text(response).strip()
+        return text or cls.FALLBACK_RESPONSE
+
+    def _run_react_loop(self, llm, messages: list, tools: list | None = None, max_iterations: int = 4) -> tuple[list, object, TokenUsage, bool]:
         working_messages = list(messages)
         tool_map = self._build_tool_map(tools)
         total_usage = TokenUsage()
@@ -146,9 +161,8 @@ class AgentService:
             if not tool_calls:
                 return working_messages, raw_response, total_usage, False
 
-            assistant_text = self._extract_text(raw_response)
-            if assistant_text:
-                working_messages.append(AIMessage(content=assistant_text))
+            if raw_response is not None:
+                working_messages.append(self._build_assistant_replay_message(raw_response, tool_calls))
 
             for tool_call in tool_calls:
                 call_id, tool_result = self._execute_tool_call(tool_map, tool_call)
@@ -159,7 +173,7 @@ class AgentService:
     def invoke(self, messages: list, tools: list | None = None, max_iterations: int = 4) -> dict:
         llm = LLMFactory.create(self.provider)
         effective_llm = self._bind_tools_if_supported(llm, tools)
-        _, raw_response, total_usage, exhausted = self._run_loop(
+        _, raw_response, total_usage, exhausted = self._run_react_loop(
             llm=effective_llm,
             messages=messages,
             tools=tools,
@@ -173,7 +187,7 @@ class AgentService:
             }
 
         return {
-            "response": self._extract_text(raw_response),
+            "response": self._normalize_final_response_text(raw_response),
             "raw_response": raw_response,
             "usage": self._usage_dict(total_usage),
         }
@@ -181,21 +195,28 @@ class AgentService:
     async def astream(self, messages: list, tools: list | None = None, max_iterations: int = 4):
         llm = LLMFactory.create(self.provider)
         effective_llm = self._bind_tools_if_supported(llm, tools)
-        working_messages, raw_response, total_usage, exhausted = self._run_loop(
+        working_messages, raw_response, total_usage, exhausted = self._run_react_loop(
             llm=effective_llm,
             messages=messages,
             tools=tools,
             max_iterations=max_iterations,
         )
 
-        if exhausted:
+        if exhausted or raw_response is None:
             yield {"chunk": self.FALLBACK_RESPONSE, "text": self.FALLBACK_RESPONSE}
             yield {"usage": self._usage_dict(total_usage)}
             return
 
+        emitted_text = False
         async for chunk in effective_llm.astream(working_messages):
             text = self._extract_text(chunk)
-            if text:
-                yield {"chunk": text, "text": text}
+            if not text:
+                continue
+            emitted_text = True
+            yield {"chunk": text, "text": text}
+
+        if not emitted_text:
+            final_text = self._normalize_final_response_text(raw_response)
+            yield {"chunk": final_text, "text": final_text}
 
         yield {"usage": self._usage_dict(total_usage)}
