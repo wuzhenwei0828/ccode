@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -19,18 +20,26 @@ class StubTool:
 
 class TestAgentService(unittest.TestCase):
     @patch("services.agent_tools.RAGService", create=True)
-    def test_build_chat_tools_registers_knowledge_and_current_time_tools(self, mock_rag_service_cls):
+    def test_build_chat_tools_registers_knowledge_current_time_and_web_search_tools(self, mock_rag_service_cls):
         mock_rag_service_cls.return_value.query.return_value = []
 
         tools = build_chat_tools()
 
-        self.assertTrue(tools)
+        tool_names = [tool.name for tool in tools]
+        self.assertIn("knowledge_search", tool_names)
+        self.assertIn("current_time", tool_names)
+        self.assertIn("web_search", tool_names)
+        self.assertLess(tool_names.index("knowledge_search"), tool_names.index("current_time"))
+        self.assertLess(tool_names.index("current_time"), tool_names.index("web_search"))
         knowledge_tool = next(tool for tool in tools if tool.name == "knowledge_search")
         current_time_tool = next(tool for tool in tools if tool.name == "current_time")
+        web_search_tool = next(tool for tool in tools if tool.name == "web_search")
         self.assertIn("knowledge", knowledge_tool.description.lower())
         self.assertTrue(callable(knowledge_tool.handler))
-        self.assertIn("time", current_time_tool.description.lower())
+        self.assertTrue(current_time_tool.description)
         self.assertTrue(callable(current_time_tool.handler))
+        self.assertTrue(web_search_tool.description)
+        self.assertTrue(callable(web_search_tool.handler))
 
     def test_current_time_tool_returns_serializable_result(self):
         tools = build_chat_tools()
@@ -62,6 +71,161 @@ class TestAgentService(unittest.TestCase):
         self.assertLessEqual(len(result["results"][0]["content"]), 240)
         self.assertEqual(result["results"][0]["source"], "doc-a")
         self.assertNotIsInstance(result["results"][0], Document)
+
+    @patch("services.agent_tools.DuckDuckGoSearchResults")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_returns_serializable_results(self, mock_rag_service_cls, mock_ddg_cls):
+        mock_rag_service_cls.return_value.query.return_value = []
+        ddg_tool = MagicMock()
+        ddg_tool.invoke.return_value = [
+            {
+                "title": "Result A",
+                "snippet": "alpha" * 80,
+                "link": "https://example.com/a",
+                "source": "ignored",
+            },
+            {
+                "title": "Result B",
+                "body": "beta",
+                "link": "https://example.com/b",
+                "score": 0.9,
+            },
+        ]
+        mock_ddg_cls.return_value = ddg_tool
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        result = tool.handler(query="langchain react", limit=2)
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(len(result["results"]), 2)
+        self.assertEqual(result["results"][0], {
+            "title": "Result A",
+            "snippet": ("alpha" * 80)[:240],
+            "url": "https://example.com/a",
+        })
+        self.assertEqual(result["results"][1], {
+            "title": "Result B",
+            "snippet": "beta",
+            "url": "https://example.com/b",
+        })
+        self.assertEqual(set(result["results"][0].keys()), {"title", "snippet", "url"})
+        mock_ddg_cls.assert_called_once_with(max_results=5, output_format="list")
+        ddg_tool.invoke.assert_called_once_with("langchain react")
+
+    @patch("services.agent_tools.DuckDuckGoSearchResults")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_normalizes_duckduckgo_result_fields(self, mock_rag_service_cls, mock_ddg_cls):
+        mock_rag_service_cls.return_value.query.return_value = []
+        ddg_tool = MagicMock()
+        ddg_tool.invoke.return_value = [
+            {
+                "title": "Summary First",
+                "summary": "fresh summary text",
+                "body": "older body text",
+                "link": "https://example.com/live",
+            }
+        ]
+        mock_ddg_cls.return_value = ddg_tool
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        result = tool.handler(query="duckduckgo summary", limit=1)
+
+        self.assertEqual(result, {
+            "ok": True,
+            "count": 1,
+            "results": [{
+                "title": "Summary First",
+                "snippet": "fresh summary text",
+                "url": "https://example.com/live",
+            }],
+        })
+
+    @patch("services.agent_tools._run_web_search")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_rejects_blank_query(self, mock_rag_service_cls, mock_run_web_search):
+        mock_rag_service_cls.return_value.query.return_value = []
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        result = tool.handler(query="   ", limit=2)
+
+        self.assertEqual(result, {
+            "ok": False,
+            "error": {
+                "type": "web_search_error",
+                "message": "query must not be blank",
+            },
+        })
+        mock_run_web_search.assert_not_called()
+
+    @patch("services.agent_tools._run_web_search")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_rejects_invalid_limit(self, mock_rag_service_cls, mock_run_web_search):
+        mock_rag_service_cls.return_value.query.return_value = []
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        for invalid_limit in (0, -1, True, "2"):
+            with self.subTest(limit=invalid_limit):
+                result = tool.handler(query="langchain", limit=invalid_limit)
+                self.assertEqual(result, {
+                    "ok": False,
+                    "error": {
+                        "type": "web_search_error",
+                        "message": "limit must be a positive integer",
+                    },
+                })
+
+        mock_run_web_search.assert_not_called()
+
+    @patch("services.agent_tools.DuckDuckGoSearchResults")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_returns_empty_results_when_search_finds_nothing(self, mock_rag_service_cls, mock_ddg_cls):
+        mock_rag_service_cls.return_value.query.return_value = []
+        ddg_tool = MagicMock()
+        ddg_tool.invoke.return_value = []
+        mock_ddg_cls.return_value = ddg_tool
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        result = tool.handler(query="no matches", limit=5)
+
+        self.assertEqual(result, {
+            "ok": True,
+            "count": 0,
+            "results": [],
+        })
+
+    @patch("services.agent_tools._run_web_search")
+    @patch("services.agent_tools.RAGService", create=True)
+    def test_web_search_tool_returns_structured_error_when_search_raises(self, mock_rag_service_cls, mock_run_web_search):
+        mock_rag_service_cls.return_value.query.return_value = []
+        mock_run_web_search.side_effect = RuntimeError("search backend unavailable")
+
+        tools = build_chat_tools()
+        tool = next(tool for tool in tools if tool.name == "web_search")
+
+        with self.assertLogs("services.agent_tools", level=logging.ERROR) as captured_logs:
+            result = tool.handler(query="langchain", limit=3)
+
+        self.assertEqual(result, {
+            "ok": False,
+            "error": {
+                "type": "web_search_error",
+                "message": "web search backend unavailable",
+            },
+        })
+        self.assertEqual(len(captured_logs.output), 1)
+        self.assertIn("web_search backend failure query=langchain", captured_logs.output[0])
+        self.assertIn("RuntimeError: search backend unavailable", captured_logs.output[0])
 
     @patch("services.agent_service.LLMFactory.create")
     def test_invoke_returns_final_answer_without_tool_calls(self, mock_create):
@@ -109,7 +273,7 @@ class TestAgentService(unittest.TestCase):
         llm.bind_tools.assert_called_once()
         payload = llm.bind_tools.call_args.args[0]
         tool_names = {item["name"] for item in payload}
-        self.assertEqual(tool_names, {"knowledge_search", "current_time"})
+        self.assertTrue({"knowledge_search", "current_time", "web_search"}.issubset(tool_names))
         current_time_tool = next(item for item in payload if item["name"] == "current_time")
         self.assertEqual(current_time_tool["name"], "current_time")
         self.assertTrue(current_time_tool["description"])

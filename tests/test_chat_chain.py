@@ -10,13 +10,15 @@ from services.agent_tools import build_chat_tools
 
 
 class TestChatChainSummaryPrompt(unittest.TestCase):
-    def test_build_chat_tools_registers_knowledge_and_current_time_tools(self):
+    def test_build_chat_tools_registers_knowledge_current_time_and_web_search_tools(self):
         tools = build_chat_tools()
 
-        self.assertTrue(tools)
-        tool_names = {tool.name for tool in tools}
+        tool_names = [tool.name for tool in tools]
         self.assertIn("knowledge_search", tool_names)
         self.assertIn("current_time", tool_names)
+        self.assertIn("web_search", tool_names)
+        self.assertLess(tool_names.index("knowledge_search"), tool_names.index("current_time"))
+        self.assertLess(tool_names.index("current_time"), tool_names.index("web_search"))
 
     @patch("chains.chat_chain.AgentService")
     def test_invoke_uses_react_system_prompt_and_preserves_message_order(self, mock_agent_service_cls):
@@ -74,6 +76,29 @@ class TestChatChainSummaryPrompt(unittest.TestCase):
             },
         })
         memory.get_context_parts.assert_called_with(123)
+
+    @patch("chains.chat_chain.AgentService")
+    def test_invoke_passes_runtime_web_search_tool_to_agent_service(self, mock_agent_service_cls):
+        memory = MagicMock()
+        memory.get_context_parts.return_value = ("summary text", [])
+
+        agent_service = MagicMock()
+        agent_service.invoke.return_value = {
+            "response": "answer",
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "analysis_tokens": 0,
+            },
+        }
+        mock_agent_service_cls.return_value = agent_service
+
+        chain = ChatChain(memory, provider="siliconflow")
+        chain.invoke("sess-1", "hello")
+
+        tools = agent_service.invoke.call_args.kwargs["tools"]
+        tool_names = {tool.name for tool in tools}
+        self.assertIn("web_search", tool_names)
 
 
 class TestChatChainUsage(unittest.TestCase):
