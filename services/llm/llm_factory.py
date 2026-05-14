@@ -69,22 +69,22 @@ class LLMFactory:
 
 # Auto-register built-in providers
 def _create_openai_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.openai_llm import create_openai_chat_model
+    from services.llm.openai_llm import create_openai_chat_model
     return create_openai_chat_model(cfg)
 
 
 def _create_claude_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.claude_llm import create_claude_chat_model
+    from services.llm.claude_llm import create_claude_chat_model
     return create_claude_chat_model(cfg)
 
 
 def _create_chinese_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.chinese_llm import create_chinese_chat_model
+    from services.llm.chinese_llm import create_chinese_chat_model
     return create_chinese_chat_model(cfg)
 
 
 def _create_siliconflow_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.siliconflow_llm import create_siliconflow_chat_model
+    from services.llm.siliconflow_llm import create_siliconflow_chat_model
     return create_siliconflow_chat_model(cfg)
 
 

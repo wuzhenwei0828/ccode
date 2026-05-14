@@ -9,7 +9,7 @@ from config import get_settings
 from config.settings import MemoryConfig
 from models.chat_message import ChatMessage
 from models.chat_session import ChatSession
-from services.llm_factory import LLMFactory
+from services.llm.llm_factory import LLMFactory
 from utils.db import SessionLocal
 
 logger = logging.getLogger(__name__)

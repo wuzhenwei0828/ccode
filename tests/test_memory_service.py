@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from models.chat_message import ChatMessage
 from models.chat_session import ChatSession
-from services.memory_service import MemoryService
+from services.memory.memory_service import MemoryService
 
 
 class TestMemoryService(unittest.TestCase):
@@ -16,7 +16,7 @@ class TestMemoryService(unittest.TestCase):
     def setUp(self):
         self.service = MemoryService()
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_returns_all_messages_when_under_window(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 5
 
@@ -31,7 +31,7 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0].content, "msg1")
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_returns_all_cached_s1_messages(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 3
 
@@ -45,10 +45,10 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(result[0].content, "msg1")
         self.assertEqual(result[-1].content, "msg5")
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_empty_session(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
             mock_session = MagicMock()
@@ -74,8 +74,8 @@ class TestMemoryService(unittest.TestCase):
             result = self.service.get_context("nonexistent-session")
         self.assertEqual(result, [])
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_user_to_s1(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -109,8 +109,8 @@ class TestMemoryService(unittest.TestCase):
         self.assertIsInstance(messages[0], HumanMessage)
         self.assertEqual(messages[0].content, "hello")
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_assistant_to_s1(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -144,8 +144,8 @@ class TestMemoryService(unittest.TestCase):
         self.assertIsInstance(messages[0], AIMessage)
         self.assertEqual(messages[0].content, "hi there")
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_persists_to_mysql(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -182,8 +182,8 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(saved_msg.content, "persist me")
         self.assertEqual(saved_msg.sequence, 0)
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_does_not_set_explicit_uuid_id(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -217,8 +217,8 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(saved_message.content, "hello")
         self.assertIsNone(getattr(saved_message, "id", None))
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_memory_normalizes_integer_and_string_session_ids_to_same_cache_key(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -254,8 +254,8 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(messages[0].content, "hello")
         self.assertEqual(messages[1].content, "hi")
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_sequence_increment(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -294,8 +294,8 @@ class TestMemoryService(unittest.TestCase):
         second_msg = mock_db.add.call_args[0][0]
         self.assertEqual(second_msg.sequence, 1)
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_multiple_messages_same_session(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -334,7 +334,7 @@ class TestMemoryService(unittest.TestCase):
         self.assertIsInstance(all_messages[0], HumanMessage)
         self.assertIsInstance(all_messages[1], AIMessage)
 
-    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.SessionLocal")
     def test_load_history_returns_messages_in_order(self, mock_session_local):
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
@@ -363,7 +363,7 @@ class TestMemoryService(unittest.TestCase):
         self.assertEqual(result[1].content, "hi back")
         mock_db.close.assert_called_once()
 
-    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.SessionLocal")
     def test_load_history_with_limit(self, mock_session_local):
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
@@ -382,7 +382,7 @@ class TestMemoryService(unittest.TestCase):
         mock_order.limit.assert_called_once_with(5)
         mock_db.close.assert_called_once()
 
-    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.SessionLocal")
     def test_load_history_empty_session(self, mock_session_local):
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
@@ -398,7 +398,7 @@ class TestMemoryService(unittest.TestCase):
         result = self.service.load_history("empty-session")
         self.assertEqual(result, [])
 
-    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.SessionLocal")
     def test_clear_session_removes_short_term_and_db(self, mock_session_local):
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
@@ -428,7 +428,7 @@ class TestMemoryService(unittest.TestCase):
         mock_db.commit.assert_called_once()
         mock_db.close.assert_called_once()
 
-    @patch("services.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.SessionLocal")
     def test_clear_session_unknown_session(self, mock_session_local):
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
@@ -453,8 +453,8 @@ class TestMemoryService(unittest.TestCase):
         session_filter.delete.assert_called_once()
         mock_db.commit.assert_called_once()
 
-    @patch("services.memory_service.SessionLocal")
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.SessionLocal")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_reflects_added_messages(self, mock_get_settings, mock_session_local):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         mock_db = MagicMock()
@@ -492,7 +492,7 @@ class TestDualBufferCompression(unittest.TestCase):
     def setUp(self):
         self.service = MemoryService()
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_returns_summary_plus_s1_plus_s2(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 3
 
@@ -507,7 +507,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual(context[1].content, "s1-msg")
         self.assertEqual(context[2].content, "s2-msg")
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_writes_to_s2_when_s1_is_full(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 2
@@ -520,7 +520,7 @@ class TestDualBufferCompression(unittest.TestCase):
             AIMessage(content="m2"),
         ]
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
 
@@ -549,7 +549,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual([m.content for m in self.service._buffers_s1[session_id]], ["m1", "m2"])
         self.assertEqual([m.content for m in self.service._buffers_s2[session_id]], ["m3"])
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_clear_session_removes_s1_and_s2_buffers(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 3
 
@@ -557,7 +557,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.service._buffers_s1[session_id] = [HumanMessage(content="s1")]
         self.service._buffers_s2[session_id] = [AIMessage(content="s2")]
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
             msg_query = MagicMock()
@@ -578,7 +578,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertNotIn(session_id, self.service._buffers_s1)
         self.assertNotIn(session_id, self.service._buffers_s2)
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_on_compression_complete_moves_s2_to_s1_and_clears_s2(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 3
 
@@ -591,7 +591,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual([m.content for m in self.service._buffers_s1[session_id]], ["new-s2", "new-s2-reply"])
         self.assertEqual(self.service._buffers_s2[session_id], [])
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_start_compression_marks_session_as_compressing_and_is_idempotent(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 2
@@ -600,7 +600,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         session_id = "sess-dual-5"
 
-        with patch("services.memory_service.threading.Thread") as mock_thread:
+        with patch("services.memory.memory_service.threading.Thread") as mock_thread:
             thread_instance = MagicMock()
             mock_thread.return_value = thread_instance
             self.service._start_compression(session_id)
@@ -610,7 +610,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual(mock_thread.call_count, 1)
         thread_instance.start.assert_called_once()
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_start_compression_runs_summary_and_completion_flow(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 2
@@ -619,7 +619,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         session_id = "sess-dual-6"
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
             mock_session_query = MagicMock()
@@ -637,7 +637,7 @@ class TestDualBufferCompression(unittest.TestCase):
                     if self._target:
                         self._target()
 
-            with patch("services.memory_service.threading.Thread", ImmediateThread):
+            with patch("services.memory.memory_service.threading.Thread", ImmediateThread):
                 with patch.object(self.service, "_generate_summary") as mock_generate_summary:
                     with patch.object(self.service, "_on_compression_complete") as mock_on_complete:
                         self.service._start_compression(session_id)
@@ -646,7 +646,7 @@ class TestDualBufferCompression(unittest.TestCase):
         mock_on_complete.assert_called_once_with(session_id)
         self.assertNotIn(session_id, self.service._summary_in_progress)
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_add_message_triggers_compression_when_s1_reaches_window(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 4
@@ -657,7 +657,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.service._buffers_s1[session_id] = [HumanMessage(content="m1")]
 
         with patch.object(self.service, "_start_compression") as mock_start_compression:
-            with patch("services.memory_service.SessionLocal") as mock_session_local:
+            with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
                 mock_db = MagicMock()
                 mock_session_local.return_value = mock_db
 
@@ -687,7 +687,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
 
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_recover_context_restores_all_uncompressed_messages_to_s1_when_within_half_window(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 10
@@ -695,7 +695,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         session_id = "sess-dual-8"
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
 
@@ -720,7 +720,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual(context[0].content, "以下是之前对话的摘要：summary text")
         mock_generate_summary.assert_not_called()
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_recover_context_restores_last_half_window_and_triggers_compression_when_uncompressed_exceeds_half(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 10
@@ -728,7 +728,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         session_id = "sess-dual-9"
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
 
@@ -747,7 +747,7 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual(self.service._buffers_s2[session_id], [])
         self.assertEqual(len(context), 6)
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_recover_context_without_summary_uses_half_window_policy(self, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 10
@@ -755,7 +755,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         session_id = "sess-dual-10"
 
-        with patch("services.memory_service.SessionLocal") as mock_session_local:
+        with patch("services.memory.memory_service.SessionLocal") as mock_session_local:
             mock_db = MagicMock()
             mock_session_local.return_value = mock_db
 
@@ -776,7 +776,7 @@ class TestDualBufferCompression(unittest.TestCase):
         mock_start_compression.assert_called_once_with(session_id)
 
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_get_context_parts_returns_summary_and_history_separately(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 3
 
@@ -793,8 +793,8 @@ class TestDualBufferCompression(unittest.TestCase):
         self.assertEqual(history[1].content, "s2-msg")
 
 
-    @patch("services.memory_service.get_settings")
-    @patch("services.memory_service.LLMFactory.create")
+    @patch("services.memory.memory_service.get_settings")
+    @patch("services.memory.memory_service.LLMFactory.create")
     def test_generate_summary_uses_shorter_length_and_concise_prompt(self, mock_create, mock_get_settings):
         cfg = MagicMock()
         cfg.short_term_window = 10
@@ -818,7 +818,7 @@ class TestDualBufferCompression(unittest.TestCase):
 
         prompt = mock_llm.invoke.call_args[0][0]
 
-    @patch("services.memory_service.get_settings")
+    @patch("services.memory.memory_service.get_settings")
     def test_memory_normalizes_integer_session_id_to_string_cache_key(self, mock_get_settings):
         mock_get_settings.return_value.get_memory_config.return_value.short_term_window = 10
         session_id = 123

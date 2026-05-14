@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from chains.chat_chain import ChatChain
 from chains.rag_chain import RAGChain
-from services.memory_service import memory_service
+from services.memory.memory_service import memory_service
 from services.rag_service import rag_service
 from utils.db import get_db
 

@@ -2,8 +2,8 @@ from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from services.llm_factory import LLMFactory
-from services.memory_service import MemoryService
+from services.llm.llm_factory import LLMFactory
+from services.memory.memory_service import MemoryService
 
 
 class ChatChain:

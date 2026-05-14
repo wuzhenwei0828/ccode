@@ -10,7 +10,7 @@ class TestChatRouter(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
-    @patch("routers.chat.ChatChain")
+    @patch("routers.chat.ChatAgent")
     def test_chat_returns_usage(self, mock_chain_cls):
         chain = MagicMock()
         chain.invoke.return_value = {
@@ -41,8 +41,13 @@ class TestChatRouter(unittest.TestCase):
                 "analysis_tokens": 2,
             },
         })
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            provider="siliconflow",
+        )
+        chain.invoke.assert_called_once_with(1, "hello")
 
-    @patch("routers.chat.RAGChain")
+    @patch("routers.chat.RAGAgent")
     def test_chat_returns_usage_for_rag_requests(self, mock_chain_cls):
         chain = MagicMock()
         chain.invoke.return_value = {
@@ -69,8 +74,14 @@ class TestChatRouter(unittest.TestCase):
             "output_tokens": 6,
             "analysis_tokens": 3,
         })
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            unittest.mock.ANY,
+            provider="siliconflow",
+        )
+        chain.invoke.assert_called_once_with(1, "hello", k=4)
 
-    @patch("routers.chat.ChatChain")
+    @patch("routers.chat.ChatAgent")
     def test_chat_stream_keeps_public_sse_contract_when_agent_uses_tools(self, mock_chain_cls):
         async def fake_stream(*args, **kwargs):
             yield {"chunk": "final "}
@@ -78,7 +89,7 @@ class TestChatRouter(unittest.TestCase):
             yield {"usage": {"input_tokens": 12, "output_tokens": 6, "analysis_tokens": 3}}
 
         chain = MagicMock()
-        chain.astream = fake_stream
+        chain.astream = MagicMock(side_effect=fake_stream)
         mock_chain_cls.return_value = chain
 
         with self.client.stream("POST", "/api/chat/stream", json={
@@ -97,8 +108,13 @@ class TestChatRouter(unittest.TestCase):
         self.assertNotIn("tool_call", body)
         self.assertNotIn("tool_result", body)
         self.assertTrue(body.strip().endswith('data: [DONE]'))
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            provider="siliconflow",
+        )
+        chain.astream.assert_called_once_with(1, "hello")
 
-    @patch("routers.chat.ChatChain")
+    @patch("routers.chat.ChatAgent")
     def test_chat_stream_emits_usage_before_done(self, mock_chain_cls):
         async def fake_stream(*args, **kwargs):
             yield {"chunk": "hel"}
@@ -106,7 +122,7 @@ class TestChatRouter(unittest.TestCase):
             yield {"usage": {"input_tokens": 10, "output_tokens": 5, "analysis_tokens": 2}}
 
         chain = MagicMock()
-        chain.astream = fake_stream
+        chain.astream = MagicMock(side_effect=fake_stream)
         mock_chain_cls.return_value = chain
 
         with self.client.stream("POST", "/api/chat/stream", json={
@@ -123,16 +139,21 @@ class TestChatRouter(unittest.TestCase):
         self.assertIn('data: {"chunk": "lo"}', body)
         self.assertIn('data: {"usage": {"input_tokens": 10, "output_tokens": 5, "analysis_tokens": 2}}', body)
         self.assertTrue(body.strip().endswith('data: [DONE]'))
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            provider="siliconflow",
+        )
+        chain.astream.assert_called_once_with(1, "hello")
 
 
-    @patch("routers.chat.RAGChain")
+    @patch("routers.chat.RAGAgent")
     def test_chat_stream_uses_rag_chain_for_rag_requests(self, mock_chain_cls):
         async def fake_stream(*args, **kwargs):
             yield {"chunk": "rag"}
             yield {"usage": {"input_tokens": 12, "output_tokens": 6, "analysis_tokens": 3}}
 
         chain = MagicMock()
-        chain.astream = fake_stream
+        chain.astream = MagicMock(side_effect=fake_stream)
         mock_chain_cls.return_value = chain
 
         with self.client.stream("POST", "/api/chat/stream", json={
@@ -148,4 +169,10 @@ class TestChatRouter(unittest.TestCase):
         self.assertIn('data: {"chunk": "rag"}', body)
         self.assertIn('data: {"usage": {"input_tokens": 12, "output_tokens": 6, "analysis_tokens": 3}}', body)
         self.assertTrue(body.strip().endswith('data: [DONE]'))
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            unittest.mock.ANY,
+            provider="siliconflow",
+        )
+        chain.astream.assert_called_once_with(1, "hello", k=4)
 

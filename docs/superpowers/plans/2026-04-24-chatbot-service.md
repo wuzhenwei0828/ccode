@@ -571,7 +571,7 @@ def _create_openai_model(cfg: LLMProviderConfig) -> BaseChatModel:
 
 
 def _create_claude_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.claude_llm import create_claude_chat_model
+    from services.llm.claude_llm import create_claude_chat_model
     return create_claude_chat_model(cfg)
 
 
@@ -1158,8 +1158,8 @@ from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from services.llm_factory import LLMFactory
-from services.memory_service import MemoryService
+from services.llm.llm_factory import LLMFactory
+from services.memory.memory_service import MemoryService
 
 
 class ChatChain:
@@ -1235,8 +1235,8 @@ from langchain_core.messages import SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from services.llm_factory import LLMFactory
-from services.memory_service import MemoryService
+from services.llm.llm_factory import LLMFactory
+from services.memory.memory_service import MemoryService
 from services.rag_service import RAGService
 
 
@@ -1362,7 +1362,7 @@ from sqlalchemy.orm import Session
 
 from chains.chat_chain import ChatChain
 from chains.rag_chain import RAGChain
-from services.memory_service import memory_service
+from services.memory.memory_service import memory_service
 from services.rag_service import rag_service
 from utils.db import get_db
 
@@ -1814,7 +1814,7 @@ def claude_provider_config():
 ```python
 import pytest
 
-from services.llm_factory import LLMFactory
+from services.llm.llm_factory import LLMFactory
 
 
 class TestLLMFactory:

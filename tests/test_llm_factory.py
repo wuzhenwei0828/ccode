@@ -1,6 +1,6 @@
 import pytest
 
-from services.llm_factory import LLMFactory
+from services.llm.llm_factory import LLMFactory
 
 
 class TestLLMFactory:

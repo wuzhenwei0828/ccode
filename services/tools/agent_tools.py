@@ -169,9 +169,7 @@ def _build_web_search_tool() -> ChatTool:
 
 
 def build_chat_tools() -> list[ChatTool]:
-    """Return the tool list for ChatChain agent execution."""
-    return [
-        _build_knowledge_search_tool(),
-        _build_current_time_tool(),
-        _build_web_search_tool(),
-    ]
+    """Return the tool list for chat agent execution."""
+    from services.tools.registry import ToolRegistry
+
+    return ToolRegistry.default().build_tools()

@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from chains.chat_chain import ChatChain
-from chains.rag_chain import RAGChain
-from services.memory_service import memory_service
+from chains.chat_agent import ChatAgent
+from chains.rag_agent import RAGAgent
+from services.memory.memory_service import memory_service
 from services.rag_service import rag_service
 from utils.db import get_db
 
@@ -38,10 +38,10 @@ class ChatResponse(BaseModel):
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Send a message and receive a complete response."""
     if req.use_rag:
-        chain = RAGChain(memory_service, rag_service, provider=req.provider)
+        chain = RAGAgent(memory_service, rag_service, provider=req.provider)
         result = chain.invoke(req.session_id, req.message, k=req.rag_k)
     else:
-        chain = ChatChain(memory_service, provider=req.provider)
+        chain = ChatAgent(memory_service, provider=req.provider)
         result = chain.invoke(req.session_id, req.message)
 
     return ChatResponse(
@@ -59,11 +59,11 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
 
     async def event_generator():
         if req.use_rag:
-            chain = RAGChain(memory_service, rag_service, provider=req.provider)
+            chain = RAGAgent(memory_service, rag_service, provider=req.provider)
             async for event in chain.astream(req.session_id, req.message, k=req.rag_k):
                 yield f"data: {json.dumps(event)}\n\n"
         else:
-            chain = ChatChain(memory_service, provider=req.provider)
+            chain = ChatAgent(memory_service, provider=req.provider)
             async for event in chain.astream(req.session_id, req.message):
                 yield f"data: {json.dumps(event)}\n\n"
         yield "data: [DONE]\n\n"

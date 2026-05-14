@@ -74,7 +74,7 @@ def _create_openai_model(cfg: LLMProviderConfig) -> BaseChatModel:
 
 
 def _create_claude_model(cfg: LLMProviderConfig) -> BaseChatModel:
-    from services.claude_llm import create_claude_chat_model
+    from services.llm.claude_llm import create_claude_chat_model
     return create_claude_chat_model(cfg)
 
 
