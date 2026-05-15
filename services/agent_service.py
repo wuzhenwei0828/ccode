@@ -31,6 +31,17 @@ class AgentService:
             context=None,
             max_iterations=max_iterations,
         )
+    def invoke1(self, summary,history,message, tools: list | None = None, max_iterations: int = 4) -> dict:
+        llm = LLMFactory.create(self.provider)
+        return self._planner.invoke(
+            llm=llm,
+            summary=summary,
+            history=history,
+            message=message,
+            tools=tools,
+            context=None,
+            max_iterations=max_iterations,
+        )
 
     async def astream(self, messages: list, tools: list | None = None, max_iterations: int = 4):
         summary, history, message = self._split_messages(messages)

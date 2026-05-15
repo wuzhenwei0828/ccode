@@ -9,7 +9,7 @@ from utils.db import init_db
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d): %(message)s",
 )
 
 app = FastAPI(title="Chatbot Service")

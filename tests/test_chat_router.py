@@ -111,6 +111,7 @@ class TestChatRouter(unittest.TestCase):
         mock_chain_cls.assert_called_once_with(
             unittest.mock.ANY,
             provider="siliconflow",
+            planner_mode="plan_and_execute",
         )
         chain.astream.assert_called_once_with(1, "hello")
 
@@ -142,6 +143,7 @@ class TestChatRouter(unittest.TestCase):
         mock_chain_cls.assert_called_once_with(
             unittest.mock.ANY,
             provider="siliconflow",
+            planner_mode="plan_and_execute",
         )
         chain.astream.assert_called_once_with(1, "hello")
 

@@ -3,6 +3,7 @@ from langchain_openai import ChatOpenAI
 
 from config.settings import LLMProviderConfig
 
+
 def create_siliconflow_chat_model(cfg: LLMProviderConfig) -> BaseChatModel:
     """Create a SiliconFlow LLM via OpenAI-compatible interface."""
     if not cfg.api_base:

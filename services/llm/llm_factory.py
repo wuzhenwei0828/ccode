@@ -4,6 +4,7 @@ from langchain_core.language_models import BaseChatModel
 
 from config import get_settings
 from config.settings import LLMProviderConfig
+from services.llm.logged_chat_model import LoggedChatModel
 
 
 class LLMFactory:

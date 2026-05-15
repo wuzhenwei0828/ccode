@@ -70,3 +70,11 @@ def merge_token_usage(left: TokenUsage, right: TokenUsage) -> TokenUsage:
         output_tokens=left.output_tokens + right.output_tokens,
         analysis_tokens=left.analysis_tokens + right.analysis_tokens,
     )
+
+
+def usage_dict(usage: TokenUsage) -> dict:
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "analysis_tokens": usage.analysis_tokens,
+    }

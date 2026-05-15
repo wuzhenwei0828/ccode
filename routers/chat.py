@@ -63,7 +63,7 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db)):
             async for event in chain.astream(req.session_id, req.message, k=req.rag_k):
                 yield f"data: {json.dumps(event)}\n\n"
         else:
-            chain = ChatAgent(memory_service, provider=req.provider)
+            chain = ChatAgent(memory_service, provider=req.provider, planner_mode="plan_and_execute")
             async for event in chain.astream(req.session_id, req.message):
                 yield f"data: {json.dumps(event)}\n\n"
         yield "data: [DONE]\n\n"
