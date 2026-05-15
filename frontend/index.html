@@ -907,7 +907,13 @@
       </div>
       <div class="input-footer">
         <span id="statusText">Ready</span>
-        <span id="charCount">0</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="rag-toggle" id="planToggle" onclick="togglePlannerMode()">
+            <span class="rag-dot"></span>
+            PLAN
+          </button>
+          <span id="charCount">0</span>
+        </div>
       </div>
     </div>
   </main>
@@ -948,6 +954,7 @@ let state = {
   sessions: [],
   messages: [],
   useRag: false,
+  plannerModeEnabled: false,
   kbOpen: false,
   kbs: [],
   documents: [],
@@ -1311,6 +1318,7 @@ async function sendMessage() {
         use_rag: state.useRag,
         provider: provider,
         rag_k: 4,
+        planner_mode: state.plannerModeEnabled ? 'plan_and_execute' : 'react',
       }),
     });
 
@@ -1424,6 +1432,12 @@ function toggleRAG() {
   const toggle = document.getElementById('ragToggle');
   toggle.classList.toggle('active', state.useRag);
   toast(state.useRag ? 'RAG mode enabled' : 'RAG mode disabled', state.useRag ? 'success' : '');
+}
+
+function togglePlannerMode() {
+  state.plannerModeEnabled = !state.plannerModeEnabled;
+  const toggle = document.getElementById('planToggle');
+  toggle.classList.toggle('active', state.plannerModeEnabled);
 }
 
 // ── KB ──

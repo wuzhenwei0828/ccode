@@ -111,6 +111,65 @@ class TestChatRouter(unittest.TestCase):
         mock_chain_cls.assert_called_once_with(
             unittest.mock.ANY,
             provider="siliconflow",
+            planner_mode="react",
+        )
+        chain.astream.assert_called_once_with(1, "hello")
+
+    @patch("routers.chat.ChatAgent")
+    def test_chat_stream_defaults_to_react_planner_mode_for_non_rag_requests(self, mock_chain_cls):
+        async def fake_stream(*args, **kwargs):
+            yield {"chunk": "hello"}
+            yield {"usage": {"input_tokens": 10, "output_tokens": 5, "analysis_tokens": 2}}
+
+        chain = MagicMock()
+        chain.astream = MagicMock(side_effect=fake_stream)
+        mock_chain_cls.return_value = chain
+
+        with self.client.stream("POST", "/api/chat/stream", json={
+            "session_id": 1,
+            "message": "hello",
+            "use_rag": False,
+            "provider": "siliconflow",
+            "rag_k": 4,
+        }) as response:
+            body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data: {"chunk": "hello"}', body)
+        self.assertIn('data: {"usage": {"input_tokens": 10, "output_tokens": 5, "analysis_tokens": 2}}', body)
+        self.assertTrue(body.strip().endswith('data: [DONE]'))
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            provider="siliconflow",
+            planner_mode="react",
+        )
+        chain.astream.assert_called_once_with(1, "hello")
+
+    @patch("routers.chat.ChatAgent")
+    def test_chat_stream_forwards_explicit_plan_and_execute_planner_mode(self, mock_chain_cls):
+        async def fake_stream(*args, **kwargs):
+            yield {"chunk": "hello"}
+            yield {"usage": {"input_tokens": 10, "output_tokens": 5, "analysis_tokens": 2}}
+
+        chain = MagicMock()
+        chain.astream = MagicMock(side_effect=fake_stream)
+        mock_chain_cls.return_value = chain
+
+        with self.client.stream("POST", "/api/chat/stream", json={
+            "session_id": 1,
+            "message": "hello",
+            "use_rag": False,
+            "provider": "siliconflow",
+            "planner_mode": "plan_and_execute",
+            "rag_k": 4,
+        }) as response:
+            body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data: {"chunk": "hello"}', body)
+        mock_chain_cls.assert_called_once_with(
+            unittest.mock.ANY,
+            provider="siliconflow",
             planner_mode="plan_and_execute",
         )
         chain.astream.assert_called_once_with(1, "hello")
@@ -143,7 +202,7 @@ class TestChatRouter(unittest.TestCase):
         mock_chain_cls.assert_called_once_with(
             unittest.mock.ANY,
             provider="siliconflow",
-            planner_mode="plan_and_execute",
+            planner_mode="react",
         )
         chain.astream.assert_called_once_with(1, "hello")
 
