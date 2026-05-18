@@ -1,9 +1,12 @@
 import logging
+from datetime import datetime
 
 from services.agent_service import AgentService
 from services.llm import LLMFactory
+from services.llm_instance.replan_llm import get_instance
 from services.planners.base import BasePlanner
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.output_parsers.json import JsonOutputParser
 
 from services.token_usage import merge_token_usage, normalize_token_usage, TokenUsage, usage_dict, _to_int
 from services.tools.tools_helper import ToolsHelper
@@ -11,16 +14,24 @@ from services.tools.tools_helper import ToolsHelper
 logger = logging.getLogger(__name__)
 
 
+def parse_json_result(replan_result):
+    content = replan_result.content
+    jsonOutputParser = JsonOutputParser()
+    return jsonOutputParser.parse(content)
+
+
 class PlanAndExecutePlanner(BasePlanner):
     """Placeholder planner for future plan-and-execute mode."""
 
     NOT_IMPLEMENTED_MESSAGE = "plan_and_execute mode is not implemented yet."
-    SYSTEM_PROMPT = """
-    你是任务的规划器，负责将大任务拆分成原子级的可执行步骤。你需要输出一个编号列表，每一步都要具体、可执行。
+    now = datetime.now().isoformat()
+    SYSTEM_PROMPT = f"""
+    你是任务的规划器，负责为大任务制定执行计划。你需要输出一个编号列表，每一步都要具体、可执行。
     你的输出格式必须严格遵守：
       - 只输出编号列表，严禁输出思考过程
       - 每一行代表一步，以数字编号开始，以句号结束。
       - 拆成多少步就输出多少行，便于后续解析
+    当前时间是:{now}
       
     示例：
       - 问：明天天气怎么样？
@@ -59,7 +70,7 @@ class PlanAndExecutePlanner(BasePlanner):
             message: str,
             tools: list | None = None,
             context: str | None = None,
-            max_iterations: int = 4,
+            max_iterations: int = 10,
     ):
         plan = llm.invoke(input=[
             SystemMessage(content=self.SYSTEM_PROMPT),
@@ -75,6 +86,8 @@ class PlanAndExecutePlanner(BasePlanner):
         results = []
         total_usage = TokenUsage()
         for i, step in enumerate(steps):
+            if i > max_iterations:
+                break
             step_message = (
                 f"你是整体任务中一个小任务的执行器，整体任务共{len(steps)}步，当前是第{i + 1}步，"
                 f"前面步骤的执行结果是: {results}。\n\n"
@@ -96,8 +109,22 @@ class PlanAndExecutePlanner(BasePlanner):
             total_usage = merge_token_usage(total_usage, token_usage)
             results.append(step_result.get("response"))
 
+            replan_result  = self.needReplan(message, step, step_result, steps[i + 1:])
+            jsonReplan = parse_json_result(replan_result)
+            if int(jsonReplan.get("needReplan")) == 3:
+                logger.info("needReplan: 3, 提前终止任务")
+                break
+            if int(jsonReplan.get("needReplan")) == 2:
+                logger.info("needReplan: 2, 提前终止任务")
+                break
+            if int(jsonReplan.get("needReplan")) == 1 :
+                newPlan = list(jsonReplan.get("plan"))
+                steps = steps[:i + 1] + newPlan
+                logger.info(f"newPlan: {steps}")
+
+
         # 根据执行结果生成最终回答（流式输出）
-        final_prompt = f"""基于以下任务执行步骤的结果，请综合回答用户的原始问题。
+        final_prompt = f"""基于以下任务执行步骤的结果，请综合回答用户的原始问题,你可以提前结束任务（当前获取到的信息无法回答用户问题时），或者修改执行步骤。
 
 执行步骤和结果：
 {chr(10).join([f'步骤{i + 1}: {result}' for i, result in enumerate(results)])}
@@ -137,3 +164,42 @@ class PlanAndExecutePlanner(BasePlanner):
         for line in content.split("\n"):
             steps.append(line.strip())
         return steps
+
+    def needReplan(self, message, step, step_result, steps):
+        llm = get_instance()
+        json_schema = """{
+            "type": "object",
+            "properties": {
+                "needReplan": {
+                    "type": "integer",
+                    "description": "是否需要重新规划, 3表示需要人工介入提前结束任务，2表示当前已可以直接回答用户问题提前结束任务，1表示需要重新规划，0表示不需要重新规划"
+                },
+                "plan": {
+                    "type": "array",
+                    "description": "若需要重新规划，输出规划步骤列表（如需提前结束任务可输出空列表）；若不需要重新规划或需要提前结束任务，输出空列表",
+                    "items": {
+                        "type": "string",
+                        "description": "规划步骤内容"
+                    }
+                }
+            },
+            "required": [
+                "needReplan",
+                "plan"
+            ]
+        }"""
+        
+        prompts = f"""基于以下任务执行步骤的结果，判断是否需要重新规划任务执行步骤。
+
+执行步骤和结果：
+当前步骤是：{step}
+结果是：{step_result}
+
+用户原始问题：{message}
+剩余的原执行计划：{steps}
+
+请给出准确的回答，严格输出以下json格式：
+{json_schema}
+"""
+        return llm.invoke(prompts)
+
