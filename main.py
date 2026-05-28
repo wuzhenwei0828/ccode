@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
+from services.tools.registry import ToolRegistry
 from utils.db import init_db
 
 logging.basicConfig(
@@ -12,20 +14,26 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d): %(message)s",
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
 app = FastAPI(title="Chatbot Service")
+logger = logging.getLogger(__name__)
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
 @app.on_event("startup")
-def on_startup():
-    """Initialize database tables on startup."""
+async def on_startup():
+    """Initialize runtime dependencies on startup."""
     init_db()
-    app.mount("/static", StaticFiles(directory="frontend"), name="static")
+    await ToolRegistry.default().abuild_tools()
+    logger.info("startup tool preload complete")
 
 
 @app.get("/")
 async def root():
     """Serve the frontend chat interface."""
-    return FileResponse("frontend/index.html", media_type="text/html")
+    return FileResponse(str(FRONTEND_DIR / "index.html"), media_type="text/html")
 
 
 # Register routers
